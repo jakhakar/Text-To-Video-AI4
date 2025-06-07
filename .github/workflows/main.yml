@@ -26,7 +26,7 @@ jobs:
         if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
     - name: Run main script
-    env:
+      env:
         GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         PEXELS_KEY: ${{secrets.PEXELS_KEY }}
       run: |
