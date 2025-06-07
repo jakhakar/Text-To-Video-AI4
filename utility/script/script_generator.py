@@ -42,8 +42,9 @@ def generate_script(topic):
     model="gemini-1.5-flash",
     config=types.GenerateContentConfig(
         system_instruction=prompt
+        content = response.choices[0].message.content
     ),
-    contents= response.text
+  
 )
 
     
