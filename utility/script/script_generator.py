@@ -34,10 +34,14 @@ def generate_script(topic):
         {"script": "Here is the script ..."}
         """
     )
-    response = model.generate_content([
-        {"role": "system", "parts": [prompt]},
-        {"role": "user", "parts": [topic]}
-    ])
+    response = client.models.generate_content(
+    model="gemini-2.0-flash",
+    config=types.GenerateContentConfig(
+        system_instruction=prompt
+    ),
+    contents= "unbelievable interesting facts"
+)
+
     content = response.text
 
     try:
