@@ -4,7 +4,7 @@ import json
 from google import genai
 from google.genai import types
 
-client = genai.Client(api_key="GEMINI_API_KEY")
+genai.configure(api_key=GEMINI_API_KEY)
 
 # Configure Gemini 2.5 Flash using API key from environment variable
 #configure(api_key=os.environ["GEMINI_API_KEY"])
@@ -38,10 +38,9 @@ def generate_script(topic):
         {"script": "Here is the script ..."}
         """
     )
-    response = client.models.generate_content(
-    model="gemini-1.5-flash",
-    config=types.GenerateContentConfig(
-        system_instruction=prompt
+    model = genai.GenerativeModel('gemini-pro')
+response = model.generate_content(prompt)
+        
     ),
   
 )
