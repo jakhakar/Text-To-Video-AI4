@@ -9,10 +9,13 @@ if len(os.environ.get("GROQ_API_KEY")) > 30:
         api_key=os.environ.get("GROQ_API_KEY"),
         )
 else:
-    OPENAI_API_KEY = os.getenv('OPENAI_KEY')
-    model = "gpt-4o"
-    client = OpenAI(api_key=OPENAI_API_KEY)
-
+    len(os.environ.get("GROQ_API_KEY")) > 30:
+    from groq import Groq
+    model = "mixtral-8x7b-32768"
+    client = Groq(
+        api_key=os.environ.get("GROQ_API_KEY"),
+        )
+    
 def generate_script(topic):
     prompt = (
         """You are a seasoned content writer for a YouTube Shorts channel, specializing in facts videos. 
