@@ -31,4 +31,4 @@ jobs:
         PEXELS_KEY: ${{secrets.PEXELS_KEY }}
         GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       run: |
-        if [ -f main.py ]; then python main.py; fi
+        if [ -f main.py ]; then python main.py "INTERESTING FACTS"; fi
