@@ -49,7 +49,7 @@ def generate_script(topic):
     
 
     try:
-        content = response.choices[0].message.content
+        content = response.text
         script = json.loads(content)["script"]
     except Exception:
         json_start_index = content.find('{')
