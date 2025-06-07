@@ -43,10 +43,10 @@ def generate_script(topic):
     config=types.GenerateContentConfig(
         system_instruction=prompt
     ),
-    contents= "unbelievable interesting facts"
+    contents= response.text
 )
 
-    content = response.text
+    
 
     try:
         script = json.loads(content)["script"]
