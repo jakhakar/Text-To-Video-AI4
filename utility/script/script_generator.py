@@ -49,7 +49,7 @@ def generate_script(topic):
                 {"role": "user", "content": topic}
             ]
         )
-    content = response.choices[0].message.content
+    content = response.text
     try:
         script = json.loads(content)["script"]
     except Exception as e:
