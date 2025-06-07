@@ -42,7 +42,6 @@ def generate_script(topic):
     model="gemini-1.5-flash",
     config=types.GenerateContentConfig(
         system_instruction=prompt
-        content = response.choices[0].message.content
     ),
   
 )
@@ -50,6 +49,7 @@ def generate_script(topic):
     
 
     try:
+        content = response.choices[0].message.content
         script = json.loads(content)["script"]
     except Exception:
         json_start_index = content.find('{')
