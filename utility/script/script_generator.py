@@ -2,9 +2,11 @@ import os
 import json
 from google.generativeai import GenerativeModel, configure
 
+client = genai.Client(api_key="GEMINI_API_KEY")
+
 # Configure Gemini 2.5 Flash using API key from environment variable
-configure(api_key=os.environ["GEMINI_API_KEY"])
-model = GenerativeModel("gemini-1.5-flash-latest")
+#configure(api_key=os.environ["GEMINI_API_KEY"])
+#model = GenerativeModel("gemini-1.5-flash-latest")
 
 def generate_script(topic):
     prompt = (
