@@ -14,7 +14,7 @@ if len(os.environ.get("GROQ_API_KEY")) > 30:
 else:
     model = "gpt-4o"
     OPENAI_API_KEY = os.environ.get('OPENAI_KEY')
-    client = OpenAI(api_key=OPENAI_API_KEY)
+    client = OpenAI(api_key= "24d5g6hctyuhuuuuuuy6gd4darhj757in8")
 
 log_directory = ".logs/gpt_logs"
 
