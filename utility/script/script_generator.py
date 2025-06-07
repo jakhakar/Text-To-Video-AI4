@@ -1,6 +1,8 @@
 import os
+import sys
 import json
-from google.generativeai import GenerativeModel, configure
+from google import genai
+from google.genai import types
 
 client = genai.Client(api_key="GEMINI_API_KEY")
 
