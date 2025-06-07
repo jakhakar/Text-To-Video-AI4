@@ -1,14 +1,11 @@
 import os
-from openai import OpenAI
 import json
+from google.generativeai import GenerativeModel, configure
 
- len(os.environ.get("GROQ_API_KEY")) > 30:
-    from groq import Groq
-    model = "mixtral-8x7b-32768"
-    client = Groq(
-        api_key=os.environ.get("GROQ_API_KEY"),
-        )
-    
+# Configure Gemini 2.5 Flash using API key from environment variable
+configure(api_key=os.environ["GEMINI_API_KEY"])
+model = GenerativeModel("gemini-1.5-flash-latest")
+
 def generate_script(topic):
     prompt = (
         """You are a seasoned content writer for a YouTube Shorts channel, specializing in facts videos. 
@@ -31,24 +28,21 @@ def generate_script(topic):
 
         Keep it brief, highly interesting, and unique.
 
-        Stictly output the script in a JSON format like below, and only provide a parsable JSON object with the key 'script'.
+        Strictly output the script in a JSON format like below, and only provide a parsable JSON object with the key 'script'.
 
         # Output
         {"script": "Here is the script ..."}
         """
     )
+    response = model.generate_content([
+        {"role": "system", "parts": [prompt]},
+        {"role": "user", "parts": [topic]}
+    ])
+    content = response.text
 
-    response = client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": prompt},
-                {"role": "user", "content": topic}
-            ]
-        )
-    content = response.choices[0].message.content
     try:
         script = json.loads(content)["script"]
-    except Exception as e:
+    except Exception:
         json_start_index = content.find('{')
         json_end_index = content.rfind('}')
         print(content)
