@@ -2,8 +2,8 @@ from openai import OpenAI
 import os
 import json
 import re
-from datetime import datetime
-log_response,LOG_TYPE_GPT
+from utility.utils import log_response,LOG_TYPE_GPT
+
 
 # The following lines were incorrectly indented. They should be at the top level.
 from groq import Groq
