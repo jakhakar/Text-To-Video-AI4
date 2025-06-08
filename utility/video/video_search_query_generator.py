@@ -3,11 +3,12 @@ import os
 import json
 import re
 from datetime import datetime
-from utility.utils import log_response,LOG_TYPE_GPT
+log_response,LOG_TYPE_GPT
 
-  from groq import Groq
-    model = "llama3-70b-8192"
-    client = Groq(
+# The following lines were incorrectly indented. They should be at the top level.
+from groq import Groq
+model = "llama3-70b-8192"
+client = Groq(
         api_key=os.environ.get("GROQ_API_KEY"),
         )
 
