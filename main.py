@@ -6,10 +6,12 @@ import argparse
 from utility.script.script_generator import generate_script
 from utility.audio.audio_generator import generate_audio
 from utility.captions.timed_captions_generator import generate_timed_captions
-from utility.video.video_search_query_generator import getVideoSearchQueriesTimed, merge_empty_intervals
 
-# --- MODIFICATION 1: Corrected the import name ---
-# The function is named generate_video_assets (with a 't'), not 'assests'
+# --- MODIFICATION 1: Import the new, correctly named functions ---
+from utility.video.video_search_query_generator import (
+    generate_image_prompts_timed,
+    fill_empty_prompts
+)
 from utility.video.background_video_generator import generate_video_assets
 from utility.render.render_engine import get_output_media
 
@@ -22,11 +24,7 @@ if __name__ == "__main__":
     # --- Configuration ---
     SAMPLE_TOPIC = args.topic
     SAMPLE_FILE_NAME = "audio_tts.wav"
-
-    # --- MODIFICATION 2: Set the video server to 'flux' ---
-    # This is the critical switch that tells the program to use
-    # the new Together.ai + FFmpeg generation method.
-    VIDEO_SERVER = "flux"
+    VIDEO_SERVER = "flux" # Ensure this is set to use the new image generation logic
 
     # 1. Generate the script for the video
     response = generate_script(SAMPLE_TOPIC)
@@ -37,38 +35,39 @@ if __name__ == "__main__":
 
     # 3. Generate timed captions from the audio file
     timed_captions = generate_timed_captions(SAMPLE_FILE_NAME)
-    print("Timed captions generated:")
-    print(timed_captions)
+    print("Timed captions generated.")
 
-    # 4. Determine what video clips to generate based on the script and timings
-    search_terms = getVideoSearchQueriesTimed(response, timed_captions)
-    print("Video search queries generated:")
-    print(search_terms)
-
-    # --- MODIFICATION 3: Renamed variable for clarity ---
-    # The function now returns a list of local file paths, not URLs.
-    # Renaming the variable makes the code's intent clearer.
-    generated_clips = None
-
-    if search_terms is not None:
-        # --- MODIFICATION 4: Call the new, correct function ---
-        # We now call generate_video_assets with the "flux" server.
-        generated_clips = generate_video_assets(search_terms, VIDEO_SERVER)
-        print("Generated video clip paths:")
-        print(generated_clips)
+    # --- MODIFICATION 2: Call the new prompt generation function ---
+    # Instead of getting search queries, we now generate rich image prompts for each caption.
+    timed_image_prompts = None
+    if timed_captions:
+        print("Generating detailed image prompts for each caption...")
+        timed_image_prompts = generate_image_prompts_timed(timed_captions)
     else:
-        print("No search terms were generated, cannot create background video.")
+        print("No captions were generated, cannot create image prompts.")
 
-    # This function presumably handles any empty slots. It will now receive
-    # a list of file paths (with None for failures) instead of URLs.
-    generated_clips = merge_empty_intervals(generated_clips)
-
+    # --- MODIFICATION 3: Call the new function to handle any API failures ---
+    # This will fill any gaps where prompt generation might have failed.
+    if timed_image_prompts:
+        timed_image_prompts = fill_empty_prompts(timed_image_prompts)
+        print("Final timed image prompts have been prepared.")
+    
+    # --- MODIFICATION 4: Generate video clips from the new prompts ---
+    generated_clips = None
+    if timed_image_prompts:
+        print("Generating video assets from image prompts...")
+        # The 'generate_video_assets' function now receives the list of detailed prompts
+        generated_clips = generate_video_assets(timed_image_prompts, VIDEO_SERVER)
+    else:
+        print("No image prompts available, cannot generate video clips.")
+        
     # 5. Render the final video
-    if generated_clips is not None:
+    if generated_clips:
         print("Starting final video render...")
-        # Pass the list of local clip paths to the rendering engine.
-        # The render engine must be able to handle local paths when VIDEO_SERVER is "flux".
         final_video_path = get_output_media(SAMPLE_FILE_NAME, timed_captions, generated_clips, VIDEO_SERVER)
-        print(f"✅ Final video created successfully at: {final_video_path}")
+        if final_video_path:
+            print(f"✅ Final video created successfully at: {final_video_path}")
+        else:
+            print("❌ The rendering process failed.")
     else:
         print("❌ No background video clips were generated. Cannot render final video.")
