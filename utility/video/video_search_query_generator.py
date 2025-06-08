@@ -1,114 +1,147 @@
-from openai import OpenAI
 import os
 import json
 import re
-from utility.utils import log_response,LOG_TYPE_GPT
+from groq import Groq # Use the correct import
+from utility.utils import log_response, LOG_TYPE_GPT
 
+# --- Configuration ---
+# Check for API key at the start and provide a clear error.
+try:
+    GROQ_API_KEY = os.environ["GROQ_API_KEY"]
+except KeyError:
+    raise EnvironmentError("FATAL: GROQ_API_KEY environment variable not set.")
 
-# The following lines were incorrectly indented. They should be at the top level.
-from groq import Groq
-model = "llama3-70b-8192"
-client = Groq(
-        api_key=os.environ.get("GROQ_API_KEY"),
-        )
+CLIENT = Groq(api_key=GROQ_API_KEY)
+MODEL = "llama3-70b-8192"
 
-log_directory = ".logs/gpt_logs"
+PROMPT = """
+# Instructions
+You are an AI assistant that generates video search keywords.
+Given a video script and a JSON array of timed captions, your task is to generate a new JSON array of timed visual keywords.
 
-prompt = """# Instructions
+# Rules
+1.  **Output Format:** Your response MUST be ONLY a valid JSON array. Do not include any extra text, explanations, or markdown fences like ```json.
+2.  **Time Segmentation:** Each keyword segment should be 2-4 seconds long. The time periods in your output must be strictly consecutive and cover the entire duration of the input captions.
+3.  **Keywords:** For each time segment, provide one to three visually concrete and specific keywords. Keywords must be in English and describe something that can be seen.
+    - **GOOD:** "crying child", "futuristic city at night", "lion running"
+    - **BAD:** "emotional moment", "sadness" (not visually concrete)
+4.  **Context:** Use the full script for context, but base the timing of keywords on the provided timed captions.
+5.  **Input Example:** If you receive timed captions like `[[[0, 2.1], "The cheetah is the fastest"], [[2.1, 4.5], "land animal on Earth."]]`, you could output `[[[0, 4.5], ["cheetah running", "fast savanna", "sprinting animal"]]]`.
 
-Given the following video script and timed captions, extract three visually concrete and specific keywords for each time segment that can be used to search for background videos. The keywords should be short and capture the main essence of the sentence. They can be synonyms or related terms. If a caption is vague or general, consider the next timed caption for more context. If a keyword is a single word, try to return a two-word keyword that is visually concrete. If a time frame contains two or more important pieces of information, divide it into shorter time frames with one keyword each. Ensure that the time periods are strictly consecutive and cover the entire length of the video. Each keyword should cover between 2-4 seconds. The output should be in JSON format, like this: [[[t1, t2], ["keyword1", "keyword2", "keyword3"]], [[t2, t3], ["keyword4", "keyword5", "keyword6"]], ...]. Please handle all edge cases, such as overlapping time segments, vague or general captions, and single-word keywords.
+# Example Output Structure
+[[[t1, t2], ["keyword1", "keyword2"]], [[t2, t3], ["keyword3", "keyword4", "keyword5"]], ...]
+"""
 
-For example, if the caption is 'The cheetah is the fastest land animal, capable of running at speeds up to 75 mph', the keywords should include 'cheetah running', 'fastest animal', and '75 mph'. Similarly, for 'The Great Wall of China is one of the most iconic landmarks in the world', the keywords should be 'Great Wall of China', 'iconic landmark', and 'China landmark'.
-
-Important Guidelines:
-
-Use only English in your text queries.
-Each search string must depict something visual.
-The depictions have to be extremely visually concrete, like rainy street, or cat sleeping.
-'emotional moment' <= BAD, because it doesn't depict something visually.
-'crying child' <= GOOD, because it depicts something visual.
-The list must always contain the most relevant and appropriate query searches.
-['Car', 'Car driving', 'Car racing', 'Car parked'] <= BAD, because it's 4 strings.
-['Fast car'] <= GOOD, because it's 1 string.
-['Un chien', 'une voiture rapide', 'une maison rouge'] <= BAD, because the text query is NOT in English.
-
-Note: Your response should be the response only and no extra text or data.
-  """
-
-def fix_json(json_str):
-    # Replace typographical apostrophes with straight quotes
-    json_str = json_str.replace("’", "'")
-    # Replace any incorrect quotes (e.g., mixed single and double quotes)
-    json_str = json_str.replace("“", "\"").replace("”", "\"").replace("‘", "\"").replace("’", "\"")
-    # Add escaping for quotes within the strings
-    json_str = json_str.replace('"you didn"t"', '"you didn\'t"')
-    return json_str
-
-def getVideoSearchQueriesTimed(script,captions_timed):
-    end = captions_timed[-1][0][1]
+def _fix_and_load_json(json_string: str):
+    """Attempts to fix and parse a JSON string from LLM output."""
+    # Remove markdown fences and surrounding whitespace
+    json_string = json_string.strip().replace("```json", "").replace("```", "").strip()
+    # Replace typographical apostrophes that can break JSON
+    json_string = json_string.replace("’", "'")
+    
     try:
-        
-        out = [[[0,0],""]]
-        while out[-1][0][1] != end:
-            content = call_OpenAI(script,captions_timed).replace("'",'"')
-            try:
-                out = json.loads(content)
-            except Exception as e:
-                print("content: \n", content, "\n\n")
-                print(e)
-                content = fix_json(content.replace("```json", "").replace("```", ""))
-                out = json.loads(content)
-        return out
-    except Exception as e:
-        print("error in response",e)
-   
+        return json.loads(json_string)
+    except json.JSONDecodeError as e:
+        print(f"Initial JSON parsing failed: {e}")
+        print(f"Problematic string: {json_string}")
+        # Add more advanced fixing logic here if needed in the future
+        return None
+
+def _call_groq_api(script: str, formatted_captions: str, max_retries: int = 3):
+    """Calls the Groq API to get video search queries, with a retry mechanism."""
+    user_content = f"Video Script for context:\n{script}\n\nTimed Captions to process:\n{formatted_captions}"
+    
+    for attempt in range(max_retries):
+        print(f"Attempting to generate keywords (Attempt {attempt + 1}/{max_retries})...")
+        try:
+            response = CLIENT.chat.completions.create(
+                model=MODEL,
+                temperature=0.2, # Lower temperature for more predictable JSON output
+                messages=[
+                    {"role": "system", "content": PROMPT},
+                    {"role": "user", "content": user_content}
+                ]
+            )
+            text = response.choices[0].message.content
+            log_response(LOG_TYPE_GPT, script, text)
+            
+            # Attempt to parse the response
+            parsed_json = _fix_and_load_json(text)
+            if parsed_json and isinstance(parsed_json, list):
+                print("Successfully generated and parsed keywords.")
+                return parsed_json
+            else:
+                print("Failed to parse JSON or response was not a list.")
+
+        except Exception as e:
+            print(f"An error occurred during API call attempt {attempt + 1}: {e}")
+
+    print("Failed to get a valid response from the API after all retries.")
     return None
 
-def call_OpenAI(script,captions_timed):
-    user_content = """Script: {}
-Timed Captions:{}
-""".format(script,"".join(map(str,captions_timed)))
-    print("Content", user_content)
-    
-    response = client.chat.completions.create(
-        model= model,
-        temperature=1,
-        messages=[
-            {"role": "system", "content": prompt},
-            {"role": "user", "content": user_content}
-        ]
-    )
-    
-    text = response.choices[0].message.content.strip()
-    text = re.sub('\s+', ' ', text)
-    print("Text", text)
-    log_response(LOG_TYPE_GPT,script,text)
-    return text
+def get_video_search_queries_timed(script: str, captions_timed: list):
+    """
+    Main function to generate timed video search queries from a script and captions.
+    This has been corrected to remove the infinite loop.
+    """
+    if not captions_timed:
+        print("Error: Received empty timed captions.")
+        return None
 
-def merge_empty_intervals(segments):
-    merged = []
-    i = 0
-    while i < len(segments):
-        interval, url = segments[i]
-        if url is None:
-            # Find consecutive None intervals
-            j = i + 1
-            while j < len(segments) and segments[j][1] is None:
-                j += 1
-            
-            # Merge consecutive None intervals with the previous valid URL
-            if i > 0:
-                prev_interval, prev_url = merged[-1]
-                if prev_url is not None and prev_interval[1] == interval[0]:
-                    merged[-1] = [[prev_interval[0], segments[j-1][0][1]], prev_url]
-                else:
-                    merged.append([interval, prev_url])
-            else:
-                merged.append([interval, None])
-            
-            i = j
-        else:
-            merged.append([interval, url])
-            i += 1
+    # --- FIX: Format the captions as a clean JSON string for the LLM ---
+    # This is much easier for the model to understand than a mashed-together string.
+    formatted_captions = json.dumps(captions_timed, indent=2)
     
+    # --- FIX: The dangerous `while` loop is replaced by a single, robust call ---
+    search_queries = _call_groq_api(script, formatted_captions)
+    
+    return search_queries
+
+
+def merge_empty_intervals(segments: list):
+    """
+    Corrected and simplified logic to fill gaps in video assets.
+    If a segment has no video, it will be covered by the previous valid video.
+    """
+    if not segments:
+        return []
+
+    # Find the first valid asset to fill any initial gaps
+    first_valid_asset = None
+    for _, asset in segments:
+        if asset is not None:
+            first_valid_asset = asset
+            break
+            
+    # Use a forward-fill approach
+    last_valid_asset = first_valid_asset
+    for i in range(len(segments)):
+        interval, asset = segments[i]
+        if asset is None:
+            # If the current asset is None, replace it with the last valid one
+            segments[i][1] = last_valid_asset
+        else:
+            # If the current asset is valid, it becomes the new "last valid" one
+            last_valid_asset = asset
+            
+    # Now merge consecutive segments that have the same asset path
+    if not segments:
+        return []
+
+    merged = []
+    current_interval, current_asset = segments[0]
+    
+    for i in range(1, len(segments)):
+        next_interval, next_asset = segments[i]
+        # If the asset is the same, extend the current interval
+        if next_asset == current_asset:
+            current_interval[1] = next_interval[1]
+        # Otherwise, finalize the current segment and start a new one
+        else:
+            merged.append([current_interval, current_asset])
+            current_interval, current_asset = next_interval
+
+    # Append the very last segment
+    merged.append([current_interval, current_asset])
+
     return merged
