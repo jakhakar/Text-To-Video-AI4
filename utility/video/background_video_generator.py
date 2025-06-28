@@ -14,7 +14,7 @@ except KeyError:
     exit(1)
 
 # Model to use for image generation
-MODEL_NAME = "ByteDance/flux-schnell"
+MODEL_NAME = "black-forest-labs/FLUX.1-schnell-Free"
 
 # Directory to save generated assets
 OUTPUT_DIR = "generated_videos"
