@@ -51,3 +51,4 @@ groq==0.11.0
 google-genai
 google-generativeai
 together
+gtts
