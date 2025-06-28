@@ -1,73 +1,153 @@
+# main.py
+
+import sys
 import os
-import asyncio
-import argparse
+import shutil
+from datetime import datetime
 
-# --- Utility Imports ---
-from utility.script.script_generator import generate_script
-from utility.audio.audio_generator import generate_audio
-from utility.captions.timed_captions_generator import generate_timed_captions
-
-# --- MODIFICATION 1: Import the new, correctly named functions ---
-from utility.video.video_search_query_generator import (
-    generate_image_prompts_timed,
-    fill_empty_prompts
-)
+# --- Step 1: Import your custom utility modules ---
+# These modules do the heavy lifting of generating content.
+from utility.video.video_search_query_generator import generate_timed_video_searches
 from utility.video.background_video_generator import generate_video_assets
-from utility.render.render_engine import get_output_media
+
+# --- Step 2: Import libraries for final video assembly ---
+# gTTS creates the voiceover from your script.
+from gtts import gTTS
+# moviepy stitches the video clips and audio together.
+from moviepy.editor import VideoFileClip, AudioFileClip, concatenate_videoclips
+
+# --- Configuration ---
+# Define directories for output and temporary files to keep the project organized.
+FINAL_VIDEO_DIR = "final_videos"
+TEMP_DIR = "temp_processing_files"
+
+# Create directories if they don't exist
+os.makedirs(FINAL_VIDEO_DIR, exist_ok=True)
+os.makedirs(TEMP_DIR, exist_ok=True)
 
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Generate a video from a topic.")
-    parser.add_argument("topic", type=str, help="The topic for the video")
-    args = parser.parse_args()
-
-    # --- Configuration ---
-    SAMPLE_TOPIC = args.topic
-    SAMPLE_FILE_NAME = "audio_tts.wav"
-    VIDEO_SERVER = "flux" # Ensure this is set to use the new image generation logic
-
-    # 1. Generate the script for the video
-    response = generate_script(SAMPLE_TOPIC)
-    print("script: {}".format(response))
-
-    # 2. Generate the primary audio narration
-    asyncio.run(generate_audio(response, SAMPLE_FILE_NAME))
-
-    # 3. Generate timed captions from the audio file
-    timed_captions = generate_timed_captions(SAMPLE_FILE_NAME)
-    print("Timed captions generated.")
-
-    # --- MODIFICATION 2: Call the new prompt generation function ---
-    # Instead of getting search queries, we now generate rich image prompts for each caption.
-    timed_image_prompts = None
-    if timed_captions:
-        print("Generating detailed image prompts for each caption...")
-        timed_image_prompts = generate_image_prompts_timed(timed_captions)
-    else:
-        print("No captions were generated, cannot create image prompts.")
-
-    # --- MODIFICATION 3: Call the new function to handle any API failures ---
-    # This will fill any gaps where prompt generation might have failed.
-    if timed_image_prompts:
-        timed_image_prompts = fill_empty_prompts(timed_image_prompts)
-        print("Final timed image prompts have been prepared.")
+def create_video_from_topic(topic: str):
+    """
+    Orchestrates the entire video creation pipeline from a single topic.
+    1. Generates a script and timed prompts.
+    2. Generates individual video clips for each prompt.
+    3. Generates a text-to-speech voiceover.
+    4. Combines clips and audio into a final video.
+    5. Cleans up temporary files.
+    """
+    print(f"🎬 Starting video creation process for topic: '{topic}'")
     
-    # --- MODIFICATION 4: Generate video clips from the new prompts ---
-    generated_clips = None
-    if timed_image_prompts:
-        print("Generating video assets from image prompts...")
-        # The 'generate_video_assets' function now receives the list of detailed prompts
-        generated_clips = generate_video_assets(timed_image_prompts, VIDEO_SERVER)
-    else:
-        print("No image prompts available, cannot generate video clips.")
+    # --- Part 1: Generate Timed Prompts ---
+    print("\n[1/5] Generating script and video prompts...")
+    try:
+        # This function takes the simple topic and expands it into timed sentences,
+        # then generates creative visual prompts for each sentence.
+        timed_searches = generate_timed_video_searches(topic)
+        if not timed_searches:
+            print("❌ ERROR: Could not generate any timed search prompts. Exiting.")
+            return
+    except Exception as e:
+        print(f"❌ ERROR during prompt generation: {e}")
+        return
+
+    # --- Part 2: Generate Video Clips ---
+    print("\n[2/5] Generating individual video clips using Flux+FFmpeg...")
+    # This function takes the prompts and uses Together.ai and FFmpeg
+    # to create a video clip for each one.
+    # The output is a list like: [[time_range, 'path/to/clip1.mp4'], ...]
+    generated_clips_data = generate_video_assets(timed_searches, video_server="flux")
+    
+    # Filter out any clips that failed to generate
+    valid_clip_paths = [path for _, path in generated_clips_data if path]
+    if not valid_clip_paths:
+        print("❌ ERROR: Failed to generate any video clips. Exiting.")
+        return
+    print(f"✅ Successfully generated {len(valid_clip_paths)} video clips.")
+
+    # --- Part 3: Generate Voiceover Audio ---
+    print("\n[3/5] Generating text-to-speech voiceover...")
+    audio_path = os.path.join(TEMP_DIR, "voiceover.mp3")
+    try:
+        # Use the original topic/script as the text for the voiceover
+        tts = gTTS(text=topic, lang='en', slow=False)
+        tts.save(audio_path)
+        print(f"✅ Voiceover saved to: {audio_path}")
+    except Exception as e:
+        print(f"❌ ERROR: Failed to generate audio: {e}")
+        # We can still proceed to create a silent video
+        audio_path = None
+
+    # --- Part 4: Assemble Final Video ---
+    print("\n[4/5] Assembling final video...")
+    try:
+        # Load all the generated video clips into moviepy
+        moviepy_clips = [VideoFileClip(path) for path in valid_clip_paths]
         
-    # 5. Render the final video
-    if generated_clips:
-        print("Starting final video render...")
-        final_video_path = get_output_media(SAMPLE_FILE_NAME, timed_captions, generated_clips, VIDEO_SERVER)
-        if final_video_path:
-            print(f"✅ Final video created successfully at: {final_video_path}")
-        else:
-            print("❌ The rendering process failed.")
+        # Combine the clips into one long video
+        final_clip = concatenate_videoclips(moviepy_clips, method="compose")
+
+        # Add the voiceover if it was created successfully
+        if audio_path:
+            voiceover = AudioFileClip(audio_path)
+            # If the audio is longer than the video, trim the audio.
+            # If the video is longer, the audio will just stop playing.
+            final_clip = final_clip.set_audio(voiceover.subclip(0, min(voiceover.duration, final_clip.duration)))
+
+        # Create a unique filename for the final video
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        final_video_filename = f"video_{timestamp}.mp4"
+        final_video_path = os.path.join(FINAL_VIDEO_DIR, final_video_filename)
+
+        # Write the final video file to disk
+        # Use a high-quality preset for better results
+        final_clip.write_videofile(
+            final_video_path,
+            codec="libx264",
+            audio_codec="aac",
+            fps=30
+        )
+        print(f"🎉 SUCCESS! Final video saved to: {final_video_path}")
+
+    except Exception as e:
+        print(f"❌ ERROR during final video assembly: {e}")
+        return
+    finally:
+        # --- Part 5: Cleanup ---
+        # This block runs whether assembly succeeds or fails, ensuring we clean up.
+        print("\n[5/5] Cleaning up temporary files...")
+        # Close all moviepy clips to release file locks before deleting
+        for clip in moviepy_clips:
+            clip.close()
+        if 'voiceover' in locals() and voiceover:
+            voiceover.close()
+            
+        # Delete the temporary files
+        for path in valid_clip_paths:
+            try:
+                os.remove(path)
+            except OSError as e:
+                print(f"Warning: Could not remove temp clip {path}: {e}")
+        if audio_path and os.path.exists(audio_path):
+            os.remove(audio_path)
+            
+        # Optional: Clean the temp_images folder created by the generator
+        temp_image_dir = os.path.join("generated_videos", "temp_images")
+        if os.path.isdir(temp_image_dir):
+            shutil.rmtree(temp_image_dir)
+
+        print("✅ Cleanup complete.")
+
+
+# This special block runs when you execute the script directly from the command line.
+if __name__ == "__main__":
+    # Check if a command-line argument (the topic) was provided
+    if len(sys.argv) > 1:
+        input_topic = sys.argv[1]
     else:
-        print("❌ No background video clips were generated. Cannot render final video.")
+        # If no topic is provided, use a default one and inform the user.
+        print("Usage: python main.py \"<your video topic or a full script>\"")
+        print("\nRunning with a default example topic...")
+        input_topic = "The Sahara desert is the largest hot desert in the world. It covers over 9 million square kilometers. Despite its arid conditions, it is home to a variety of wildlife, including the fennec fox and the addax antelope."
+    
+    # Call the main function to start the process
+    create_video_from_topic(input_topic)
