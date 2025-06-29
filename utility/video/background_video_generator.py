@@ -4,10 +4,11 @@ import os
 import subprocess
 import uuid
 import base64
+import requests # Make sure requests is imported
 from together import Together
 
 # Instantiate the client. API key is read automatically from the environment.
-client = Together(api_key="269d47006d5b57821bc87fea56545efa61a89662bfa8c1e0ea0f1448366ddf51")
+client = Together(api_key=os.environ.get("TOGETHER_API_KEY"))
 
 # Use the specific free model
 MODEL_NAME = "black-forest-labs/FLUX.1-schnell-Free"
@@ -24,6 +25,7 @@ os.makedirs(TEMP_IMAGE_DIR, exist_ok=True)
 def generate_image_with_flux(prompt: str, width: int = 1792, height: int = 1008) -> str | None:
     """
     Generates an image using Together.ai's Flux Schnell model and saves it locally.
+    This version can handle both base64 and URL responses from the API.
     """
     print(f"🎨 Generating image for prompt: '{prompt}'...")
     try:
@@ -41,18 +43,31 @@ def generate_image_with_flux(prompt: str, width: int = 1792, height: int = 1008)
             return None
 
         # --- THE FIX IS HERE ---
-        # Instead of assuming b64_json exists, we get the attribute safely.
-        image_b64 = getattr(response.data[0], 'b64_json', None)
+        image_data = None
+        response_item = response.data[0]
+        
+        # --- DIAGNOSTIC STEP ---
+        # We print all available attributes of the response item to see its structure.
+        print(f"   [Debug] Available attributes in response item: {dir(response_item)}")
 
-        # Now, we check if we actually got the data before trying to use it.
-        if not image_b64:
-            print("❌ Image generation succeeded, but the response contained no image data.")
-            return None
-        # --- END OF FIX ---
-
-        print(f"   Image generated successfully. Decoding base64 data...")
-        image_data = base64.b64decode(image_b64)
-
+        # First, try to get the image from base64 data.
+        image_b64 = getattr(response_item, 'b64_json', None)
+        if image_b64:
+            print(f"   Image data found in 'b64_json'. Decoding...")
+            image_data = base64.b64decode(image_b64)
+        else:
+            # If no base64, check for a URL.
+            image_url = getattr(response_item, 'url', None)
+            if image_url:
+                print(f"   Image data found as URL. Downloading from: {image_url}")
+                image_response = requests.get(image_url, stream=True)
+                image_response.raise_for_status() # Check for download errors
+                image_data = image_response.content
+            else:
+                print("❌ Image generation succeeded, but the response contained no 'b64_json' or 'url'.")
+                return None
+        
+        # Now, save the image data we acquired.
         temp_image_filename = f"{uuid.uuid4()}.png"
         temp_image_path = os.path.join(TEMP_IMAGE_DIR, temp_image_filename)
 
@@ -66,6 +81,7 @@ def generate_image_with_flux(prompt: str, width: int = 1792, height: int = 1008)
         print(f"❌ An error occurred during image generation: {e}")
         return None
 
+# The rest of the file does not need to be changed.
 
 def animate_image_to_video(
     image_path: str,
@@ -74,9 +90,6 @@ def animate_image_to_video(
     fps: int = 30,
     resolution: str = "1792x1008"
 ) -> bool:
-    """
-    Animates a static image into a video with a Ken Burns effect (slow zoom) using FFmpeg.
-    """
     print(f"🎥 Animating '{os.path.basename(image_path)}' into a video...")
     try:
         ffmpeg_command = [
@@ -99,9 +112,6 @@ def animate_image_to_video(
         return False
 
 def create_animated_clip_from_prompt(prompt: str, duration: int) -> str | None:
-    """
-    Orchestrates the process of generating an image and animating it.
-    """
     image_path = None
     try:
         image_path = generate_image_with_flux(prompt)
@@ -116,9 +126,6 @@ def create_animated_clip_from_prompt(prompt: str, duration: int) -> str | None:
             print(f"   🧹 Cleaned up temporary image: {image_path}")
 
 def generate_video_assets(timed_video_searches: list, video_server: str) -> list:
-    """
-    Generates video assets based on a list of timed searches.
-    """
     timed_asset_paths = []
     if video_server == "flux":
         print("\n--- Starting video generation with Flux+FFmpeg ---")
