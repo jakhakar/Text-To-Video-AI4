@@ -7,7 +7,7 @@ import base64
 from together import Together
 
 # Instantiate the client. API key is read automatically from the environment.
-client = Together(api_key=os.environ.get("TOGETHER_API_KEY"))
+client = Together(api_key="269d47006d5b57821bc87fea56545efa61a89662bfa8c1e0ea0f1448366ddf51")
 
 # Use the specific free model
 MODEL_NAME = "black-forest-labs/FLUX.1-schnell-Free"
