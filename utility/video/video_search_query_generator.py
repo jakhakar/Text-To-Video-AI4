@@ -6,9 +6,9 @@ import re
 # --- CHANGE 1: Import the main 'Together' class ---
 from together import Together
 
-TOGETHER_API_KEY: ${{ secrets.TOGETHER_API_KEY }}
+#TOGETHER_API_KEY: ${{ secrets.TOGETHER_API_KEY }}
 # --- CHANGE 2: Instantiate the client ---
-client = Together(api_key=os.environ.get("TOGETHER_API_KEY"))
+client = Together(api_key="269d47006d5b57821bc87fea56545efa61a89662bfa8c1e0ea0f1448366ddf51")
 
 # Mixtral is an excellent, fast model for creative text generation.
 LLM_MODEL = "meta-llama/Llama-Vision-Free"
