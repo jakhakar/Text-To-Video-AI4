@@ -6,9 +6,9 @@ import google.generativeai as genai
 # --- 1. SETUP THE GOOGLE GEMINI CLIENT ---
 # This safely loads your Google API key from the environment.
 try:
-    api_key = os.environ.get("GOOGLE_API_KEY")
+    api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
-        raise ValueError("GOOGLE_API_KEY environment variable not set.")
+        raise ValueError("GEMINI_API_KEY environment variable not set.")
     genai.configure(api_key=api_key)
 except Exception as e:
     print(f"❌ CRITICAL: Failed to configure Google Gemini. {e}")
