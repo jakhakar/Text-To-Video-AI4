@@ -22,7 +22,7 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 os.makedirs(TEMP_IMAGE_DIR, exist_ok=True)
 
 
-def generate_image_with_flux(prompt: str, width: int = 1792, height: int = 1008) -> str | None:
+def generate_image_with_flux(prompt: str, width: int = 1008, height: int = 1792) -> str | None:
     """
     Generates an image using Together.ai's Flux Schnell model and saves it locally.
     This version can handle both base64 and URL responses from the API.
