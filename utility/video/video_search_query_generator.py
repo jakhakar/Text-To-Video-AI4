@@ -1,75 +1,76 @@
 # utility/video/video_search_query_generator.py
 
 import os
-import re
+import google.generativeai as genai
 
-# --- CHANGE 1: Import the main 'Together' class ---
-from together import Together
+# --- 1. SETUP THE GOOGLE GEMINI CLIENT ---
+# This safely loads your Google API key from the environment.
+try:
+    api_key = os.environ.get("GOOGLE_API_KEY")
+    if not api_key:
+        raise ValueError("GOOGLE_API_KEY environment variable not set.")
+    genai.configure(api_key=api_key)
+except Exception as e:
+    print(f"❌ CRITICAL: Failed to configure Google Gemini. {e}")
+    exit(1)
 
-#TOGETHER_API_KEY: ${{ secrets.TOGETHER_API_KEY }}
-# --- CHANGE 2: Instantiate the client ---
-client = Together(api_key="269d47006d5b57821bc87fea56545efa61a89662bfa8c1e0ea0f1448366ddf51")
+# --- 2. DEFINE THE GEMINI MODEL ---
+# Using the latest fast and capable model.
+LLM_MODEL = "gemini-1.5-flash-latest"
 
-# Mixtral is an excellent, fast model for creative text generation.
-LLM_MODEL = "meta-llama/Llama-Vision-Free"
-
-def _generate_prompts_for_caption(caption_text: str) -> list[str]:
+# --- 3. THE NEW, MORE SOPHISTICATED PROMPT GENERATION FUNCTION ---
+# This is the ONLY function this module needs to export.
+def generate_search_query(full_script: str, current_sentence: str) -> str:
     """
-    Uses a large language model to generate descriptive video prompts from a single line of text.
+    Generates a single, context-aware visual prompt for a sentence,
+    using the entire script for thematic context.
+
+    Args:
+        full_script (str): The entire video script for context.
+        current_sentence (str): The specific sentence to generate a visual for.
+
+    Returns:
+        str: A single, high-quality visual prompt string.
     """
+    
+    # This new prompt structure is much more powerful.
+    # It provides the model with the overall theme and the specific focus.
     prompt = f"""
-You are an expert AI prompt engineer for a text-to-video generator. Your task is to convert a simple caption into three distinct, highly detailed, and cinematic video prompts.
+You are a highly creative AI prompt engineer for a text-to-image generator.
+Your task is to create a single, perfect visual prompt for a specific sentence, making sure it aligns with the overall theme of the full script.
 
-RULES:
-- The prompts must be visually descriptive (mention colors, lighting, camera angles, mood).
-- Do not just repeat the caption. Evoke a scene.
-- Return ONLY a comma-separated list of the three prompts, with no numbering or extra text.
+**Overall Script Theme:**
+---
+{full_script}
+---
 
-CAPTION: "{caption_text}"
+**Specific Sentence for This Scene:**
+"{current_sentence}"
 
-PROMPTS:
+**Instructions:**
+1.  Read the **Overall Script Theme** to understand the mood, setting, and subject.
+2.  Focus on the **Specific Sentence for This Scene**.
+3.  Generate a single, visually rich, and descriptive prompt for the image generator.
+4.  The prompt should be cinematic, mentioning details like lighting (e.g., "soft morning light," "dramatic shadows"), camera view (e.g., "close-up shot," "wide panoramic view"), and style (e.g., "hyperrealistic," "fantasy art style").
+5.  **Do not** just repeat the sentence. Translate its meaning into a beautiful visual concept.
+6.  Return ONLY the single prompt string, with no extra text, quotes, or labels.
+
+**PROMPT:**
 """
     try:
-        # --- CHANGE 3: Use the client object to call the chat completions endpoint ---
-        response = client.chat.completions.create(
-            model=LLM_MODEL,
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=200,
-            temperature=0.8,
-        )
-        generated_text = response.choices[0].message.content
-        prompts = [p.strip() for p in generated_text.split(',') if p.strip()]
-        if len(prompts) == 0:
-            return [caption_text]
-        return prompts
+        model = genai.GenerativeModel(LLM_MODEL)
+        response = model.generate_content(prompt)
+        
+        # Clean up the response to ensure it's a single, clean string.
+        visual_prompt = response.text.strip()
+        
+        if not visual_prompt:
+            print("   Warning: Gemini returned an empty prompt. Falling back to the sentence itself.")
+            return current_sentence
+            
+        return visual_prompt
+        
     except Exception as e:
-        print(f"Warning: LLM query failed for caption '{caption_text}'. Error: {e}")
-        return [caption_text]
-
-# The rest of this file (helper functions and the main public function) needs no changes.
-
-def _generate_timed_captions(script_text: str, words_per_clip: int = 15) -> list:
-    sentences = re.split(r'(?<=[.!?]) +', script_text.strip())
-    timed_captions = []
-    start_time = 0
-    for sentence in sentences:
-        if not sentence:
-            continue
-        duration = max(3, len(sentence.split()) // 3)
-        end_time = start_time + duration
-        timed_captions.append([[start_time, end_time], sentence])
-        start_time = end_time
-    return timed_captions
-
-def generate_timed_video_searches(script_text: str) -> list:
-    print("Step 1: Splitting script into timed captions...")
-    timed_captions = _generate_timed_captions(script_text)
-    
-    print("Step 2: Generating creative video prompts for each caption...")
-    timed_searches = []
-    for (time_range, caption) in timed_captions:
-        print(f"  - Caption: \"{caption}\"")
-        search_prompts = _generate_prompts_for_caption(caption)
-        print(f"    -> Prompts: {search_prompts}")
-        timed_searches.append([time_range, search_prompts])
-    return timed_searches
+        print(f"   Warning: Google Gemini query failed. Error: {e}")
+        # Fallback to the original sentence if the API call fails.
+        return current_sentence
