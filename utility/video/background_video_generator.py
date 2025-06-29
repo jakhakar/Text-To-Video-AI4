@@ -3,17 +3,13 @@
 import os
 import subprocess
 import uuid
-import requests
-
-# --- CHANGE 1: Import the main 'Together' class ---
+import base64
 from together import Together
 
-#TOGETHER_API_KEY: ${{ secrets.TOGETHER_API_KEY }}
-# --- CHANGE 2: Instantiate the client. API key is read automatically from the environment. ---
-# The client object will be used to make all API calls.
-client = Together(api_key="269d47006d5b57821bc87fea56545efa61a89662bfa8c1e0ea0f1448366ddf51")
+# Instantiate the client. API key is read automatically from the environment.
+client = Together(api_key=os.environ.get("TOGETHER_API_KEY"))
 
-# --- CHANGE 3: Use the specific free model you provided ---
+# Use the specific free model
 MODEL_NAME = "black-forest-labs/FLUX.1-schnell-Free"
 
 # Directory to save generated assets
@@ -31,28 +27,26 @@ def generate_image_with_flux(prompt: str, width: int = 1920, height: int = 1080)
     """
     print(f"🎨 Generating image for prompt: '{prompt}'...")
     try:
-        # --- CHANGE 4: Use the client object to generate the image ---
+        # --- THE FIX IS HERE ---
+        # Added the 'steps=4' parameter, which is required by this specific model.
         response = client.images.generate(
             model=MODEL_NAME,
             prompt=prompt,
             n=1,
             width=width,
-            height=height
+            height=height,
+            steps=4  # <--- REQUIRED PARAMETER FOR FLUX.1-schnell-Free
         )
 
         if not response.data:
             print("❌ Image generation failed. No data in response.")
             return None
 
-        # The free model returns image data directly as a base64 string
         image_b64 = response.data[0].b64_json
         print(f"   Image generated successfully. Decoding base64 data...")
 
-        # Decode the base64 string into bytes
-        import base64
         image_data = base64.b64decode(image_b64)
 
-        # Save the image to a temporary file
         temp_image_filename = f"{uuid.uuid4()}.png"
         temp_image_path = os.path.join(TEMP_IMAGE_DIR, temp_image_filename)
 
@@ -66,8 +60,6 @@ def generate_image_with_flux(prompt: str, width: int = 1920, height: int = 1080)
         print(f"❌ An error occurred during image generation: {e}")
         return None
 
-# The 'animate_image_to_video' and 'create_animated_clip_from_prompt' functions
-# do not need any changes, so they are included here as they were.
 
 def animate_image_to_video(
     image_path: str,
@@ -76,6 +68,9 @@ def animate_image_to_video(
     fps: int = 30,
     resolution: str = "1920x1080"
 ) -> bool:
+    """
+    Animates a static image into a video with a Ken Burns effect (slow zoom) using FFmpeg.
+    """
     print(f"🎥 Animating '{os.path.basename(image_path)}' into a video...")
     try:
         ffmpeg_command = [
@@ -98,6 +93,9 @@ def animate_image_to_video(
         return False
 
 def create_animated_clip_from_prompt(prompt: str, duration: int) -> str | None:
+    """
+    Orchestrates the process of generating an image and animating it.
+    """
     image_path = None
     try:
         image_path = generate_image_with_flux(prompt)
@@ -112,6 +110,9 @@ def create_animated_clip_from_prompt(prompt: str, duration: int) -> str | None:
             print(f"   🧹 Cleaned up temporary image: {image_path}")
 
 def generate_video_assets(timed_video_searches: list, video_server: str) -> list:
+    """
+    Generates video assets based on a list of timed searches.
+    """
     timed_asset_paths = []
     if video_server == "flux":
         print("\n--- Starting video generation with Flux+FFmpeg ---")
