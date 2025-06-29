@@ -27,24 +27,30 @@ def generate_image_with_flux(prompt: str, width: int = 1792, height: int = 1008)
     """
     print(f"🎨 Generating image for prompt: '{prompt}'...")
     try:
-        # --- THE FIX IS HERE ---
-        # Added the 'steps=4' parameter, which is required by this specific model.
         response = client.images.generate(
             model=MODEL_NAME,
             prompt=prompt,
             n=1,
             width=width,
             height=height,
-            steps=4  # <--- REQUIRED PARAMETER FOR FLUX.1-schnell-Free
+            steps=4
         )
 
         if not response.data:
             print("❌ Image generation failed. No data in response.")
             return None
 
-        image_b64 = response.data[0].b64_json
-        print(f"   Image generated successfully. Decoding base64 data...")
+        # --- THE FIX IS HERE ---
+        # Instead of assuming b64_json exists, we get the attribute safely.
+        image_b64 = getattr(response.data[0], 'b64_json', None)
 
+        # Now, we check if we actually got the data before trying to use it.
+        if not image_b64:
+            print("❌ Image generation succeeded, but the response contained no image data.")
+            return None
+        # --- END OF FIX ---
+
+        print(f"   Image generated successfully. Decoding base64 data...")
         image_data = base64.b64decode(image_b64)
 
         temp_image_filename = f"{uuid.uuid4()}.png"
@@ -66,7 +72,7 @@ def animate_image_to_video(
     output_video_path: str,
     duration: int = 5,
     fps: int = 30,
-    resolution: str = "1920x1080"
+    resolution: str = "1792x1008"
 ) -> bool:
     """
     Animates a static image into a video with a Ken Burns effect (slow zoom) using FFmpeg.
