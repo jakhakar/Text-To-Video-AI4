@@ -34,3 +34,10 @@ jobs:
         GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       run: |
         if [ -f main.py ]; then python main.py "INTERESTING FACTS"; fi
+      
+      # Add this step at the end of your job
+    - name: Upload Final Video
+      uses: actions/upload-artifact@v4
+      with:
+          name: generated-video
+          path: final_videos/
