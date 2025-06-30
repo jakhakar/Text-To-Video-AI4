@@ -5,7 +5,7 @@ from moviepy.editor import (VideoFileClip, AudioFileClip, ImageClip, CompositeVi
 from PIL import Image, ImageDraw, ImageFont
 
 # --- Configuration ---
-FONT_FILE = 'Arial.ttf'
+FONT_FILE = 'Montserrat-Bold.ttf'
 FONT_SIZE = 80
 VIDEO_RESOLUTION = (1080, 1920)
 
