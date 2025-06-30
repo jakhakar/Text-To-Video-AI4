@@ -1,77 +1,75 @@
 # utility/render/render_engine.py
 
 import os
-from moviepy.editor import (VideoFileClip, AudioFileClip, ImageClip, CompositeVideoClip)
+from moviepy.editor import (VideoFileClip, AudioFileClip, ImageClip, CompositeVideoClip, concatenate_videoclips)
 from PIL import Image, ImageDraw, ImageFont
 
-# --- THE FIX: Explicitly define the path to the font file ---
-# This tells the script to look for 'Arial.ttf' in the same directory as main.py
-FONT_FILE = 'Montserrat-Bold.ttf'
+# --- Configuration ---
+FONT_FILE = 'Arial.ttf'
 FONT_SIZE = 80
 VIDEO_RESOLUTION = (1080, 1920)
 
 def render_video(scenes: list, audio_path: str, output_path: str):
     """
-    Renders the final video. This version uses Pillow and an explicit font path.
+    Renders the final video from grouped scenes.
+    A single background video is used for each scene, while multiple
+    granular captions are overlaid on top.
     """
-    # --- Check if the required font file exists ---
     if not os.path.exists(FONT_FILE):
-        error_message = (f"❌ FONT ERROR: The font file '{FONT_FILE}' was not found in the project's root directory. "
-                         "Please download it and place it there before running.")
-        raise FileNotFoundError(error_message)
+        raise FileNotFoundError(f"Font file '{FONT_FILE}' not found.")
 
-    print("--- Starting final render process (with Pillow captions) ---")
+    print("--- Starting final render process from grouped scenes ---")
     
-    all_clips = []
+    final_scene_clips = []
     moviepy_objects_to_close = []
-    current_time = 0.0
 
     try:
+        # --- Loop 1: Process each high-level scene ---
         for scene_data in scenes:
-            clip_path = scene_data['clip_path']
-            duration = scene_data['duration']
-            caption_text = scene_data['text']
-
-            video_clip = VideoFileClip(clip_path).set_start(current_time).set_duration(duration)
-            moviepy_objects_to_close.append(video_clip)
-
-            # Create caption image using Pillow
-            canvas = Image.new('RGBA', VIDEO_RESOLUTION, (0, 0, 0, 0))
-            draw = ImageDraw.Draw(canvas)
-            font = ImageFont.truetype(FONT_FILE, FONT_SIZE)
-
-            # Calculate text position for centering
-            # Use textbbox for more accurate size calculation
-            text_box = draw.textbbox((0, 0), caption_text, font=font, align="center")
-            text_width = text_box[2] - text_box[0]
-            text_height = text_box[3] - text_box[1]
-            position = ((VIDEO_RESOLUTION[0] - text_width) / 2, (VIDEO_RESOLUTION[1] - text_height) / 2)
-
-            # Draw outline
-            stroke_width = 4
-            for x_offset in range(-stroke_width, stroke_width + 1):
-                for y_offset in range(-stroke_width, stroke_width + 1):
-                    if x_offset != 0 or y_offset != 0:
-                        draw.text((position[0] + x_offset, position[1] + y_offset), caption_text, font=font, fill=(0,0,0,255), align="center")
+            print(f"   Rendering scene from {scene_data['start']:.2f}s to {scene_data['end']:.2f}s...")
             
-            # Draw main text
-            draw.text(position, caption_text, font=font, fill=(255,255,255,255), align="center")
-
-            caption_clip = ImageClip(canvas).set_start(current_time).set_duration(duration)
-            moviepy_objects_to_close.append(caption_clip)
-
-            all_clips.append(video_clip)
-            all_clips.append(caption_clip)
+            # Create the single background video clip for this entire scene
+            background_clip = VideoFileClip(scene_data['video_path']).set_duration(scene_data['duration'])
+            moviepy_objects_to_close.append(background_clip)
             
-            current_time += duration
+            clips_for_this_scene = [background_clip]
 
-        final_video = CompositeVideoClip(all_clips, size=VIDEO_RESOLUTION)
+            # --- Loop 2: Process the granular captions within this scene ---
+            for caption_data in scene_data['captions']:
+                # Calculate the caption's start time *relative to the scene*
+                relative_start = caption_data['start'] - scene_data['start']
+                
+                # Create the caption image with Pillow
+                canvas = Image.new('RGBA', VIDEO_RESOLUTION, (0, 0, 0, 0))
+                draw = ImageDraw.Draw(canvas)
+                font = ImageFont.truetype(FONT_FILE, FONT_SIZE)
+                
+                text_box = draw.textbbox((0,0), caption_data['text'], font=font, align="center")
+                text_width, text_height = text_box[2] - text_box[0], text_box[3] - text_box[1]
+                pos = ((VIDEO_RESOLUTION[0] - text_width) / 2, (VIDEO_RESOLUTION[1] * 0.75) - (text_height / 2)) # Centered on bottom 3/4 line
+
+                # Draw outline and text
+                draw.text(pos, caption_data['text'], font=font, fill=(255,255,255), align="center", stroke_width=4, stroke_fill=(0,0,0))
+                
+                # Convert to MoviePy clip
+                caption_clip = ImageClip(canvas).set_start(relative_start).set_duration(caption_data['duration'])
+                moviepy_objects_to_close.append(caption_clip)
+                
+                clips_for_this_scene.append(caption_clip)
+
+            # Compose this scene's background and all its captions
+            composed_scene_clip = CompositeVideoClip(clips_for_this_scene, size=VIDEO_RESOLUTION)
+            final_scene_clips.append(composed_scene_clip)
+
+        # Concatenate all the final composed scenes into one video
+        final_video = concatenate_videoclips(final_scene_clips)
+        
+        # Add audio and finalize
         audio_clip = AudioFileClip(audio_path)
         moviepy_objects_to_close.append(audio_clip)
         
         final_video.audio = audio_clip
-        # Use the accumulated duration of clips or the audio duration, whichever is shorter
-        final_video.duration = min(current_time, audio_clip.duration)
+        final_video.duration = audio_clip.duration
 
         print(f"   Writing final video to: {output_path}")
         final_video.write_videofile(output_path, codec='libx264', audio_codec='aac', fps=30, preset='medium')
