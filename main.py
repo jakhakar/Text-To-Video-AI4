@@ -20,40 +20,54 @@ TEMP_DIR = "temp_processing_files"
 TEMP_VIDEO_DIR = os.path.join(TEMP_DIR, "clips")
 TEMP_AUDIO_PATH = os.path.join(TEMP_DIR, "voiceover.mp3")
 FINAL_VIDEO_DIR = "final_videos"
-SCENE_DURATION_SECONDS = 5 # Generate a new background video every 5 seconds
+SCENE_DURATION_SECONDS = 5
 
-def group_captions_into_scenes(timed_captions: list, scene_duration: int) -> list:
+def group_captions_into_scenes(raw_timed_captions: list, scene_duration: int) -> list:
     """
     Groups granular captions into larger scenes of a fixed duration.
+    This version correctly handles the tuple output from the caption generator.
     """
-    if not timed_captions:
+    if not raw_timed_captions:
         return []
     
     scenes = []
-    current_scene_captions = []
-    total_duration = timed_captions[-1]['end']
+    total_duration = raw_timed_captions[-1][0][1] # Get the end time of the very last caption
     scene_start_time = 0.0
 
+    # Iterate through the timeline, creating scenes every 'scene_duration' seconds
     for i in range(0, int(total_duration) + scene_duration, scene_duration):
         scene_end_time = i + scene_duration
         
-        # Collect all captions that fall within this scene's time block
-        captions_for_this_scene = [
-            cap for cap in timed_captions if cap['start'] >= scene_start_time and cap['start'] < scene_end_time
-        ]
+        # This list will hold captions converted to the dictionary format
+        captions_for_this_scene = []
+        
+        # --- THE FIX IS HERE ---
+        # We now correctly unpack the tuple `cap` using integer indices.
+        for cap in raw_timed_captions:
+            start_time = cap[0][0]
+            
+            # Check if the caption's start time falls within the current scene's time block
+            if start_time >= scene_start_time and start_time < scene_end_time:
+                # Convert the tuple to the dictionary format the renderer needs
+                captions_for_this_scene.append({
+                    "text": cap[1],
+                    "start": cap[0][0],
+                    "end": cap[0][1],
+                    "duration": cap[0][1] - cap[0][0]
+                })
 
         if not captions_for_this_scene:
             continue
 
         # Combine the text of all captions in the scene for a better prompt
-        prompt_text = " ".join([cap['text'] for cap in captions_for_this_scene])
+        prompt_text = " ".join([cap_dict['text'] for cap_dict in captions_for_this_scene])
         
         scenes.append({
             "start": scene_start_time,
             "end": scene_end_time,
             "duration": scene_duration,
             "prompt_text": prompt_text,
-            "captions": captions_for_this_scene # Keep the original granular captions
+            "captions": captions_for_this_scene # Pass the list of dicts to the scene
         })
         scene_start_time = scene_end_time
         
@@ -75,34 +89,31 @@ def create_video_from_topic(topic: str):
         print("\n[1/4] Generating script, audio, and detailed captions...")
         full_script_text = generate_script(topic)
         audio_path = generate_audio(full_script_text, TEMP_AUDIO_PATH)
-        granular_captions = generate_timed_captions(audio_path)
-        if not granular_captions: raise ValueError("Caption generation failed.")
-        print(f"   ✅ Generated {len(granular_captions)} granular caption segments.")
+        # This returns the raw tuple data: [((start, end), text), ...]
+        raw_captions = generate_timed_captions(audio_path)
+        if not raw_captions: raise ValueError("Caption generation failed.")
+        print(f"   ✅ Generated {len(raw_captions)} granular caption segments.")
 
         # --- Part 2: Group Captions and Generate Background Videos ---
         print(f"\n[2/4] Grouping captions into {SCENE_DURATION_SECONDS}-second scenes and generating backgrounds...")
-        grouped_scenes = group_captions_into_scenes(granular_captions, SCENE_DURATION_SECONDS)
+        # This function now correctly processes the raw tuple data
+        grouped_scenes = group_captions_into_scenes(raw_captions, SCENE_DURATION_SECONDS)
         
         for i, scene in enumerate(grouped_scenes):
             print(f"\n   --- Scene {i+1}/{len(grouped_scenes)} (Time: {scene['start']:.2f}s - {scene['end']:.2f}s) ---")
-            
-            # Use the combined text of the scene to generate a relevant visual prompt
             visual_prompt = generate_search_query(full_script_text, scene['prompt_text'])
             print(f"   Context-Aware Prompt: '{visual_prompt}'")
             
-            # Generate one video clip for the entire scene
             clip_path = generate_video_clip(visual_prompt)
-            
             if clip_path:
                 final_clip_path = os.path.join(TEMP_VIDEO_DIR, os.path.basename(clip_path))
                 shutil.move(clip_path, final_clip_path)
-                scene['video_path'] = final_clip_path # Add the path to our scene data
+                scene['video_path'] = final_clip_path
                 print(f"   ✅ Background video generated for scene.")
             else:
                 scene['video_path'] = None
                 print(f"   ⚠️ WARNING: Failed to generate background for this scene.")
 
-        # Filter out any scenes that failed to get a background
         scenes_for_render = [s for s in grouped_scenes if s.get('video_path')]
         if not scenes_for_render: raise ValueError("All background video generations failed.")
 
