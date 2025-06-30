@@ -2,13 +2,13 @@
 
 import sys, os, shutil
 from datetime import datetime
+import asyncio # <-- 1. ADD THIS IMPORT
 
-# --- 1. Import all necessary utility functions ---
+# --- Import all necessary utility functions ---
 try:
     from utility.script.script_generator import generate_script
     from utility.audio.audio_generator import generate_audio
     from utility.captions.timed_captions_generator import generate_timed_captions
-    # --- THIS IMPORT HAS CHANGED ---
     from utility.video.video_search_query_generator import generate_search_query
     from utility.video.background_video_generator import generate_video_clip
     from utility.render.render_engine import render_video
@@ -34,53 +34,51 @@ def create_video_from_topic(topic: str):
     print(f"🎬 Starting video creation process for topic: '{topic}'")
     
     try:
-        # --- Part 1: Script & Audio & Captions ---
-        print("\n[1/5] Generating script, audio, and timed captions...")
+        # --- Part 1: Script Generation ---
+        print("\n[1/5] Generating script from topic...")
         full_script_text = generate_script(topic)
-        if not full_script_text: raise ValueError("Script generation failed.")
+        if "Error:" in full_script_text: raise ValueError(full_script_text)
         
-        audio_path = generate_audio(full_script_text, TEMP_AUDIO_PATH)
+        # --- Part 2: Audio & Captions ---
+        print("\n[2/5] Generating audio and timed captions...")
+        
+        # --- 2. UPDATED: Call the async function correctly using asyncio.run() ---
+        audio_path = asyncio.run(generate_audio(full_script_text, TEMP_AUDIO_PATH))
         if not audio_path: raise ValueError("Audio generation failed.")
         
         timed_captions = generate_timed_captions(full_script_text)
         if not timed_captions: raise ValueError("Failed to generate timed captions.")
         print(f"   ✅ Script and assets prepared for {len(timed_captions)} scenes.")
 
-        # --- Part 2: Video Clip Generation (NEW SIMPLIFIED LOGIC) ---
-        print("\n[2/5] Generating video clip for each scene...")
+        # --- Part 3: Video Clip Generation ---
+        print("\n[3/5] Generating video clip for each scene...")
         scenes_for_render = []
         for i, caption_data in enumerate(timed_captions):
-            scene_num = i + 1
-            caption_text = caption_data['text']
+            scene_num = i + 1; caption_text = caption_data['text']
             print(f"\n   --- Scene {scene_num}/{len(timed_captions)} ---")
             
-            # Generate ONE high-quality prompt with full script context.
             visual_prompt = generate_search_query(full_script_text, caption_text)
             print(f"   Context-Aware Prompt: '{visual_prompt}'")
             
-            # Generate a single clip from that one prompt.
             clip_path = generate_video_clip(visual_prompt)
-            
             if clip_path:
                 final_clip_path = os.path.join(TEMP_VIDEO_DIR, os.path.basename(clip_path))
                 shutil.move(clip_path, final_clip_path)
-                
                 caption_data['clip_path'] = final_clip_path
                 scenes_for_render.append(caption_data)
                 print(f"   ✅ Clip generated and saved.")
             else:
                 print(f"   ⚠️ WARNING: Failed to generate a video clip for this scene. It will be skipped.")
 
-        if not scenes_for_render:
-            raise ValueError("All video clip generations failed.")
+        if not scenes_for_render: raise ValueError("All video clip generations failed.")
 
-        # --- Parts 3, 4, 5: Rendering and Cleanup (No changes needed here) ---
-        print("\n[3/5] Rendering final video...")
+        # --- Part 4: Rendering & Cleanup ---
+        print("\n[4/5] Rendering final video...")
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         final_video_path = os.path.join(FINAL_VIDEO_DIR, f"video_{timestamp}.mp4")
         
         render_video(scenes=scenes_for_render, audio_path=audio_path, output_path=final_video_path)
-        print(f"\n[4/5] 🎉 SUCCESS! Final video saved to: {final_video_path}")
+        print(f"\n🎉 SUCCESS! Final video saved to: {final_video_path}")
 
     except Exception as e:
         print(f"\n❌ A critical error occurred: {e}")
