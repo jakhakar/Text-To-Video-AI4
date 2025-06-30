@@ -43,7 +43,7 @@ Strictly output the script in a JSON format like below. Only provide a single, p
 #    We use gemini-1.5-flash for speed and cost-effectiveness.
 #    We also enable JSON mode for reliable parsing.
 model = genai.GenerativeModel(
-    model_name="gemini-1.5-flash-latest",
+    model_name="Gemini 2.5 Flash-Lite Preview 06-17",
     system_instruction=SYSTEM_INSTRUCTIONS,
     generation_config=genai.types.GenerationConfig(
         response_mime_type="application/json"
