@@ -6,7 +6,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 # --- THE FIX: Explicitly define the path to the font file ---
 # This tells the script to look for 'Arial.ttf' in the same directory as main.py
-FONT_FILE = 'Arial.ttf'
+FONT_FILE = 'Montserrat-Bold.ttf'
 FONT_SIZE = 80
 VIDEO_RESOLUTION = (1080, 1920)
 
