@@ -2,9 +2,9 @@
 
 import sys, os, shutil
 from datetime import datetime
-# import asyncio # <-- 1. REMOVED: This import is no longer needed.
 
-# --- Import all necessary utility functions ---
+# --- 1. Import all necessary utility functions ---
+# These imports are confirmed to match your modular structure.
 try:
     from utility.script.script_generator import generate_script
     from utility.audio.audio_generator import generate_audio
@@ -34,27 +34,42 @@ def create_video_from_topic(topic: str):
     print(f"🎬 Starting video creation process for topic: '{topic}'")
     
     try:
-        # --- Part 1: Script Generation ---
-        print("\n[1/5] Generating script from topic...")
+        # --- Part 1: Script & Audio Generation ---
+        print("\n[1/5] Generating script and voiceover...")
         full_script_text = generate_script(topic)
         if "Error:" in full_script_text: raise ValueError(full_script_text)
         
-        # --- Part 2: Audio & Captions ---
-        print("\n[2/5] Generating audio and timed captions...")
-        
-        # --- 2. THE FIX: Call the function directly, without asyncio.run() ---
         audio_path = generate_audio(full_script_text, TEMP_AUDIO_PATH)
         if not audio_path: raise ValueError("Audio generation failed.")
+        print(f"   ✅ Script and audio generated successfully.")
+
+        # --- Part 2: Timed Captions from Audio ---
+        print("\n[2/5] Generating timed captions from audio using Whisper...")
         
-        timed_captions = generate_timed_captions(full_script_text)
-        if not timed_captions: raise ValueError("Failed to generate timed captions.")
-        print(f"   ✅ Script and assets prepared for {len(timed_captions)} scenes.")
+        # --- THE FIX: Call the caption generator with the AUDIO FILE PATH ---
+        raw_timed_captions = generate_timed_captions(audio_path)
+        if not raw_timed_captions: raise ValueError("Failed to generate timed captions from audio.")
+        
+        # --- Data Transformation Step ---
+        # Your Whisper function returns [((start, end), text)].
+        # The render engine expects [{'text': ..., 'start': ..., 'end': ...}].
+        # We will convert the data here to ensure compatibility.
+        timed_captions = []
+        for ((start, end), text) in raw_timed_captions:
+            timed_captions.append({
+                "text": text,
+                "start": start,
+                "end": end,
+                "duration": end - start
+            })
+        print(f"   ✅ Captions generated for {len(timed_captions)} segments.")
 
         # --- Part 3: Video Clip Generation ---
         print("\n[3/5] Generating video clip for each scene...")
         scenes_for_render = []
         for i, caption_data in enumerate(timed_captions):
-            scene_num = i + 1; caption_text = caption_data['text']
+            scene_num = i + 1
+            caption_text = caption_data['text']
             print(f"\n   --- Scene {scene_num}/{len(timed_captions)} ---")
             
             visual_prompt = generate_search_query(full_script_text, caption_text)
