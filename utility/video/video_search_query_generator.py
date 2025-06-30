@@ -16,7 +16,7 @@ except Exception as e:
 
 # --- 2. DEFINE THE GEMINI MODEL ---
 # Using the latest fast and capable model.
-LLM_MODEL = "gemini-1.5-flash-latest"
+LLM_MODEL = "gemini-2.0-flash-lite"
 
 # --- 3. THE NEW, MORE SOPHISTICATED PROMPT GENERATION FUNCTION ---
 # This is the ONLY function this module needs to export.
