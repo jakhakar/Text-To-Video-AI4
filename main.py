@@ -2,7 +2,7 @@
 
 import sys, os, shutil
 from datetime import datetime
-import asyncio # <-- 1. ADD THIS IMPORT
+# import asyncio # <-- 1. REMOVED: This import is no longer needed.
 
 # --- Import all necessary utility functions ---
 try:
@@ -42,8 +42,8 @@ def create_video_from_topic(topic: str):
         # --- Part 2: Audio & Captions ---
         print("\n[2/5] Generating audio and timed captions...")
         
-        # --- 2. UPDATED: Call the async function correctly using asyncio.run() ---
-        audio_path = asyncio.run(generate_audio(full_script_text, TEMP_AUDIO_PATH))
+        # --- 2. THE FIX: Call the function directly, without asyncio.run() ---
+        audio_path = generate_audio(full_script_text, TEMP_AUDIO_PATH)
         if not audio_path: raise ValueError("Audio generation failed.")
         
         timed_captions = generate_timed_captions(full_script_text)
