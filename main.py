@@ -3,8 +3,7 @@
 import sys, os, shutil
 from datetime import datetime
 
-# --- 1. Import all necessary utility functions ---
-# These imports are confirmed to match your modular structure.
+# Import all necessary utility functions
 try:
     from utility.script.script_generator import generate_script
     from utility.audio.audio_generator import generate_audio
@@ -21,10 +20,48 @@ TEMP_DIR = "temp_processing_files"
 TEMP_VIDEO_DIR = os.path.join(TEMP_DIR, "clips")
 TEMP_AUDIO_PATH = os.path.join(TEMP_DIR, "voiceover.mp3")
 FINAL_VIDEO_DIR = "final_videos"
+SCENE_DURATION_SECONDS = 5 # Generate a new background video every 5 seconds
+
+def group_captions_into_scenes(timed_captions: list, scene_duration: int) -> list:
+    """
+    Groups granular captions into larger scenes of a fixed duration.
+    """
+    if not timed_captions:
+        return []
+    
+    scenes = []
+    current_scene_captions = []
+    total_duration = timed_captions[-1]['end']
+    scene_start_time = 0.0
+
+    for i in range(0, int(total_duration) + scene_duration, scene_duration):
+        scene_end_time = i + scene_duration
+        
+        # Collect all captions that fall within this scene's time block
+        captions_for_this_scene = [
+            cap for cap in timed_captions if cap['start'] >= scene_start_time and cap['start'] < scene_end_time
+        ]
+
+        if not captions_for_this_scene:
+            continue
+
+        # Combine the text of all captions in the scene for a better prompt
+        prompt_text = " ".join([cap['text'] for cap in captions_for_this_scene])
+        
+        scenes.append({
+            "start": scene_start_time,
+            "end": scene_end_time,
+            "duration": scene_duration,
+            "prompt_text": prompt_text,
+            "captions": captions_for_this_scene # Keep the original granular captions
+        })
+        scene_start_time = scene_end_time
+        
+    return scenes
 
 def create_video_from_topic(topic: str):
     """
-    Orchestrates the entire video creation pipeline by calling specialized modules.
+    Orchestrates the entire video creation pipeline with scene grouping.
     """
     # --- Setup ---
     if os.path.isdir(TEMP_DIR): shutil.rmtree(TEMP_DIR)
@@ -34,61 +71,43 @@ def create_video_from_topic(topic: str):
     print(f"🎬 Starting video creation process for topic: '{topic}'")
     
     try:
-        # --- Part 1: Script & Audio Generation ---
-        print("\n[1/5] Generating script and voiceover...")
+        # --- Part 1: Generate Script, Audio, and Granular Captions ---
+        print("\n[1/4] Generating script, audio, and detailed captions...")
         full_script_text = generate_script(topic)
-        if "Error:" in full_script_text: raise ValueError(full_script_text)
-        
         audio_path = generate_audio(full_script_text, TEMP_AUDIO_PATH)
-        if not audio_path: raise ValueError("Audio generation failed.")
-        print(f"   ✅ Script and audio generated successfully.")
+        granular_captions = generate_timed_captions(audio_path)
+        if not granular_captions: raise ValueError("Caption generation failed.")
+        print(f"   ✅ Generated {len(granular_captions)} granular caption segments.")
 
-        # --- Part 2: Timed Captions from Audio ---
-        print("\n[2/5] Generating timed captions from audio using Whisper...")
+        # --- Part 2: Group Captions and Generate Background Videos ---
+        print(f"\n[2/4] Grouping captions into {SCENE_DURATION_SECONDS}-second scenes and generating backgrounds...")
+        grouped_scenes = group_captions_into_scenes(granular_captions, SCENE_DURATION_SECONDS)
         
-        # --- THE FIX: Call the caption generator with the AUDIO FILE PATH ---
-        raw_timed_captions = generate_timed_captions(audio_path)
-        if not raw_timed_captions: raise ValueError("Failed to generate timed captions from audio.")
-        
-        # --- Data Transformation Step ---
-        # Your Whisper function returns [((start, end), text)].
-        # The render engine expects [{'text': ..., 'start': ..., 'end': ...}].
-        # We will convert the data here to ensure compatibility.
-        timed_captions = []
-        for ((start, end), text) in raw_timed_captions:
-            timed_captions.append({
-                "text": text,
-                "start": start,
-                "end": end,
-                "duration": end - start
-            })
-        print(f"   ✅ Captions generated for {len(timed_captions)} segments.")
-
-        # --- Part 3: Video Clip Generation ---
-        print("\n[3/5] Generating video clip for each scene...")
-        scenes_for_render = []
-        for i, caption_data in enumerate(timed_captions):
-            scene_num = i + 1
-            caption_text = caption_data['text']
-            print(f"\n   --- Scene {scene_num}/{len(timed_captions)} ---")
+        for i, scene in enumerate(grouped_scenes):
+            print(f"\n   --- Scene {i+1}/{len(grouped_scenes)} (Time: {scene['start']:.2f}s - {scene['end']:.2f}s) ---")
             
-            visual_prompt = generate_search_query(full_script_text, caption_text)
+            # Use the combined text of the scene to generate a relevant visual prompt
+            visual_prompt = generate_search_query(full_script_text, scene['prompt_text'])
             print(f"   Context-Aware Prompt: '{visual_prompt}'")
             
+            # Generate one video clip for the entire scene
             clip_path = generate_video_clip(visual_prompt)
+            
             if clip_path:
                 final_clip_path = os.path.join(TEMP_VIDEO_DIR, os.path.basename(clip_path))
                 shutil.move(clip_path, final_clip_path)
-                caption_data['clip_path'] = final_clip_path
-                scenes_for_render.append(caption_data)
-                print(f"   ✅ Clip generated and saved.")
+                scene['video_path'] = final_clip_path # Add the path to our scene data
+                print(f"   ✅ Background video generated for scene.")
             else:
-                print(f"   ⚠️ WARNING: Failed to generate a video clip for this scene. It will be skipped.")
+                scene['video_path'] = None
+                print(f"   ⚠️ WARNING: Failed to generate background for this scene.")
 
-        if not scenes_for_render: raise ValueError("All video clip generations failed.")
+        # Filter out any scenes that failed to get a background
+        scenes_for_render = [s for s in grouped_scenes if s.get('video_path')]
+        if not scenes_for_render: raise ValueError("All background video generations failed.")
 
-        # --- Part 4: Rendering & Cleanup ---
-        print("\n[4/5] Rendering final video...")
+        # --- Part 3 & 4: Rendering & Cleanup ---
+        print("\n[3/4] Rendering final video with grouped scenes and captions...")
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         final_video_path = os.path.join(FINAL_VIDEO_DIR, f"video_{timestamp}.mp4")
         
@@ -98,7 +117,7 @@ def create_video_from_topic(topic: str):
     except Exception as e:
         print(f"\n❌ A critical error occurred: {e}")
     finally:
-        print("\n[5/5] Cleaning up temporary files...")
+        print("\n[4/4] Cleaning up temporary files...")
         if os.path.isdir(TEMP_DIR): shutil.rmtree(TEMP_DIR)
         if os.path.isdir("generated_videos"): shutil.rmtree("generated_videos")
         print("   ✅ Cleanup complete.")
