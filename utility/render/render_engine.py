@@ -1,140 +1,97 @@
+# utility/render/render_engine.py
+
 import os
-import platform
-import subprocess
-import tempfile
-from moviepy.editor import (AudioFileClip, CompositeVideoClip, CompositeAudioClip,
-                            TextClip, VideoFileClip)
-import requests
+from moviepy.editor import (VideoFileClip, AudioFileClip, TextClip,
+                            CompositeVideoClip, concatenate_videoclips)
 
-# This helper function is only needed for the 'pexel' workflow
-def download_file_from_url(url, filename):
-    """Downloads a file from a URL and saves it locally."""
-    try:
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
-        }
-        response = requests.get(url, headers=headers, stream=True)
-        response.raise_for_status()  # Will raise an exception for bad status codes
-        with open(filename, 'wb') as f:
-            for chunk in response.iter_content(chunk_size=8192):
-                f.write(chunk)
-        return True
-    except requests.exceptions.RequestException as e:
-        print(f"Error downloading {url}: {e}")
-        return False
-
-def get_program_path(program_name):
-    """Finds the path of an executable on the system."""
-    try:
-        search_cmd = "where" if platform.system() == "Windows" else "which"
-        return subprocess.check_output([search_cmd, program_name]).decode().strip()
-    except subprocess.CalledProcessError:
-        print(f"WARN: '{program_name}' not found in system's PATH. MoviePy may fail for TextClips.")
-        return None
-
-def get_output_media(audio_file_path, timed_captions, background_video_data, video_server):
+# --- 1. CORRECT FUNCTION NAME AND SIGNATURE ---
+# This function is now correctly named 'render_video' and accepts the
+# arguments that main.py provides.
+def render_video(scenes: list, audio_path: str, output_path: str):
     """
-    Renders the final video by combining background clips, audio, and captions.
-    This function now handles both remote URLs (pexel) and local file paths (flux).
+    Renders the final video by combining video clips, adding captions, and syncing audio.
+    This is a pure rendering function; it assumes all assets have been prepared.
+
+    Args:
+        scenes (list): A list of dictionaries, where each dict contains info
+                       about a scene (clip_path, text, start, duration).
+        audio_path (str): The file path to the voiceover audio.
+        output_path (str): The file path to save the final rendered video.
     """
-    OUTPUT_FILE_NAME = "rendered_video.mp4"
+    print(f"--- Starting final render process ---")
     
-    # Set up ImageMagick for MoviePy's TextClip
-    magick_path = get_program_path("magick")
-    if magick_path:
-        os.environ['IMAGEMAGICK_BINARY'] = magick_path
-    
-    visual_clips = []
-    temp_files_to_clean = [] # List to hold temp files for Pexels cleanup
+    all_clips = []
+    moviepy_objects_to_close = []
 
     try:
-        print(f"--- Starting render process using '{video_server}' server logic ---")
-        
-        # --- CORE LOGIC: Process background video assets ---
-        for (t1, t2), asset_identifier in background_video_data:
-            video_clip_path = None
+        # --- 2. LOOP THROUGH PREPARED SCENES ---
+        # The logic is now much cleaner. We just loop through the data main.py gives us.
+        for scene_data in scenes:
+            clip_path = scene_data['clip_path']
+            start_time = scene_data['start']
+            duration = scene_data['duration']
+            caption_text = scene_data['text']
 
-            if asset_identifier is None:
-                print(f"Skipping empty clip for time {t1}-{t2}s.")
-                continue
+            # Create the base video clip
+            video_clip = VideoFileClip(clip_path).set_start(start_time).set_duration(duration)
+            moviepy_objects_to_close.append(video_clip)
 
-            # --- This is the main conditional logic ---
-            if video_server == "pexel":
-                print(f"Downloading Pexel clip from URL for {t1}-{t2}s...")
-                # Create a temporary file to store the downloaded video
-                temp_video_file = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False).name
-                if download_file_from_url(asset_identifier, temp_video_file):
-                    video_clip_path = temp_video_file
-                    temp_files_to_clean.append(video_clip_path) # Mark for cleanup
-                else:
-                    print(f"Failed to download video for time {t1}-{t2}s.")
-
-            elif video_server == "flux":
-                print(f"Using local Flux clip '{os.path.basename(asset_identifier)}' for {t1}-{t2}s...")
-                # The asset_identifier is already the local file path. No download needed.
-                video_clip_path = asset_identifier
-            
-            # --- Common logic to create the MoviePy clip ---
-            if video_clip_path and os.path.exists(video_clip_path):
-                clip = VideoFileClip(video_clip_path)
-                # Ensure the clip has the correct duration for its segment
-                clip = clip.subclip(0, t2 - t1)
-                clip = clip.set_start(t1).set_duration(t2 - t1)
-                # Resize to a standard format like 1080p if needed
-                clip = clip.resize(height=1080)
-                visual_clips.append(clip)
-
-        # --- Process captions (this logic is unchanged) ---
-        print("Adding text captions...")
-        for (t1, t2), text in timed_captions:
+            # Create the caption clip
+            # This styling creates white text with a black outline for maximum readability.
             text_clip = TextClip(
-                txt=text,
+                txt=caption_text,
                 fontsize=70,
-                color="white",
+                color='white',
+                font='Arial-Bold',
+                stroke_color='black',
                 stroke_width=2,
-                stroke_color="black",
-                method="caption", # 'caption' is better for wrapping text
-                size=(1000, None) # Set width for text wrapping
-            )
-            text_clip = text_clip.set_start(t1).set_duration(t2 - t1)
-            text_clip = text_clip.set_position(("center", "bottom"))
-            visual_clips.append(text_clip)
+                size=(video_clip.w * 0.9, None), # 90% of video width
+                method='caption' # Handles word wrapping
+            ).set_start(start_time).set_duration(duration).set_position(('center', 'center'))
+            moviepy_objects_to_close.append(text_clip)
 
-        if not visual_clips:
-            print("ERROR: No visual clips were created. Aborting render.")
-            return None
+            all_clips.append(video_clip)
+            all_clips.append(text_clip)
 
-        # --- Composite video and audio ---
-        print("Compositing video clips...")
-        final_video = CompositeVideoClip(visual_clips, size=(1920, 1080))
+        if not all_clips:
+            raise ValueError("No clips were provided to the render engine.")
+
+        # --- 3. FIX: SET CORRECT 9:16 VERTICAL RESOLUTION ---
+        # The final composite is now correctly sized for Shorts/Reels/TikTok.
+        final_video = CompositeVideoClip(all_clips, size=(1080, 1920))
+
+        # --- 4. ADD AUDIO AND SET DURATION ---
+        print("   Adding audio track...")
+        audio_clip = AudioFileClip(audio_path)
+        moviepy_objects_to_close.append(audio_clip)
         
-        print("Adding audio track...")
-        audio_clip = AudioFileClip(audio_file_path)
         final_video.audio = audio_clip
+        # Ensure the final video duration doesn't exceed the audio length
         final_video.duration = audio_clip.duration
 
-        # --- Write the final file ---
-        print(f"Writing final video to '{OUTPUT_FILE_NAME}'...")
+        # --- 5. USE THE PROVIDED output_path ---
+        # The output filename is now dynamic as controlled by main.py.
+        print(f"   Writing final video to: {output_path}")
         final_video.write_videofile(
-            OUTPUT_FILE_NAME, 
-            codec='libx264', 
-            audio_codec='aac', 
-            fps=30, # Increased FPS for smoother animation
-            preset='medium', # 'medium' is a good balance of speed/quality
-            threads=os.cpu_count() # Use all available CPU cores
+            output_path,
+            codec='libx264',
+            audio_codec='aac',
+            fps=30,
+            preset='medium',
+            threads=os.cpu_count()
         )
         print("--- Render complete! ---")
-        return OUTPUT_FILE_NAME
 
+    except Exception as e:
+        print(f"❌ An error occurred during the rendering process: {e}")
+        # Re-raise the exception to allow main.py to catch it for cleanup
+        raise e
     finally:
-        # --- ROBUST CLEANUP ---
-        # This block will run even if the rendering fails, ensuring no temp files are left.
-        # This only cleans up files downloaded from Pexels. Flux files are permanent.
-        if temp_files_to_clean:
-            print("Cleaning up temporary video files...")
-            for f in temp_files_to_clean:
-                try:
-                    os.remove(f)
-                    print(f"  - Removed {f}")
-                except OSError as e:
-                    print(f"Error removing temp file {f}: {e}")
+        # --- 6. ROBUST CLEANUP ---
+        # Ensures all file handles from MoviePy are closed, even if an error occurs.
+        print("   Closing all media clips...")
+        for obj in moviepy_objects_to_close:
+            try:
+                obj.close()
+            except Exception:
+                pass # Ignore errors during cleanup
